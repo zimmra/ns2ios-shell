@@ -1,0 +1,126 @@
+name: Build native Duo shell
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [duo-pr683]
+    paths:
+      - '.github/workflows/duo-shell.yml'
+      - 'dm/ios/patches/duo-pr683.patch'
+      - 'dm/ios/tools/duo_shell.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-duo-shell
+  cancel-in-progress: false
+
+jobs:
+  shell:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      DM_ROOT: ${{ github.workspace }}/duo-output
+    steps:
+      - name: Check out integration
+        uses: actions/checkout@v4
+        with:
+          path: integration
+
+      - name: Check out the matching game-free shell source
+        uses: actions/checkout@v4
+        with:
+          repository: xinerqu/ns2ios-shell
+          ref: af294bd15e0f8a7e5c110140448c52412ec61c74
+          path: shell
+
+      - name: Apply reviewed Duo changes
+        run: |
+          set -euo pipefail
+          git -C shell apply --check "$GITHUB_WORKSPACE/integration/dm/ios/patches/duo-pr683.patch"
+          git -C shell apply "$GITHUB_WORKSPACE/integration/dm/ios/patches/duo-pr683.patch"
+          python3 - <<'PY'
+          from pathlib import Path
+          for path in Path('shell/dm/ios').rglob('*'):
+              if path.suffix in ('.m', '.h', '.swift', '.yml'):
+                  assert not any(line.startswith(('<<<<<<<', '=======', '>>>>>>>'))
+                                 for line in path.read_text().splitlines()), path
+          PY
+
+      - name: Require native hinge SDK support
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          export SDK
+          python3 -c 'import os; assert tuple(map(int, os.environ["SDK"].split("."))) >= (27, 1), "iOS 27.1 SDK required"'
+          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
+          test -f "$SDKROOT/System/Library/Frameworks/UIKit.framework/Headers/UIHingeInteraction.h"
+          echo "DUO_SDK=$SDK" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          python3 -m pip install --quiet --break-system-packages fonttools
+
+      - name: Check orientation policy
+        working-directory: shell
+        run: python3 -m unittest discover -s dm/ios/tests -p test_orientation_policy.py -v
+
+      - name: Check shell verification guards
+        run: python3 -m unittest discover -s integration/dm/tools/tests -p test_duo_shell.py -v
+
+      - name: Test production layout and input in the Duo simulator
+        working-directory: shell/dm/ios/tests/duo
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          DEVICE=$(xcrun simctl list devices available --json | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin)
+          candidates=[d["udid"] for runtime,devices in data["devices"].items()
+                      if "iOS-27-1" in runtime for d in devices if d["name"] == "iPhone Duo"]
+          assert candidates, "iOS 27.1 iPhone Duo simulator is unavailable"
+          print(candidates[0])')
+          xcrun simctl boot "$DEVICE" || test "$(xcrun simctl list devices --json | python3 -c 'import json,sys; print(next(d["state"] for ds in json.load(sys.stdin)["devices"].values() for d in ds if d["udid"] == sys.argv[1]))' "$DEVICE")" = Booted
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcodebuild test -project DuoHarness.xcodeproj -scheme DuoHarness \
+            -destination "platform=iOS Simulator,id=$DEVICE" \
+            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath "$RUNNER_TEMP/DuoHarness.xcresult" \
+            2>&1 | tee "$RUNNER_TEMP/duo-tests.log"
+
+      - name: Build the game-free device shell
+        working-directory: shell
+        run: |
+          set -euo pipefail
+          bash dm/ios/tools/shell_build.sh 2>&1 | tee "$RUNNER_TEMP/duo-shell.log"
+
+      - name: Verify compiled hinge support and stamp the shell
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python3 integration/dm/ios/tools/duo_shell.py \
+            "$DM_ROOT/build/shell/nxnative-shell-build-input.zip" \
+            dist/nxnative-duo-shell-pr683.zip --sdk "$DUO_SDK" \
+            | tee dist/duo-build.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-duo-shell-pr683
+          path: dist/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-duo-build-diagnostics
+          path: |
+            ${{ runner.temp }}/duo-tests.log
+            ${{ runner.temp }}/DuoHarness.xcresult
+            ${{ runner.temp }}/duo-shell.log
+            ${{ github.workspace }}/duo-output/build/shell/*.log
+          if-no-files-found: ignore
