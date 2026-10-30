@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/duo-shell.yml'
       - 'dm/ios/patches/duo-pr683.patch'
+      - 'dm/ios/patches/shell-build-compat.patch'
       - 'dm/ios/tools/duo_shell.py'
 
 permissions:
@@ -49,6 +50,8 @@ jobs:
           set -euo pipefail
           git -C shell apply --check "$GITHUB_WORKSPACE/integration/dm/ios/patches/duo-pr683.patch"
           git -C shell apply "$GITHUB_WORKSPACE/integration/dm/ios/patches/duo-pr683.patch"
+          git -C shell apply --check "$GITHUB_WORKSPACE/integration/dm/ios/patches/shell-build-compat.patch"
+          git -C shell apply "$GITHUB_WORKSPACE/integration/dm/ios/patches/shell-build-compat.patch"
           python3 - <<'PY'
           from pathlib import Path
           for path in Path('shell/dm/ios').rglob('*'):

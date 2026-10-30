@@ -8,6 +8,11 @@ release's Windows tools and profiles remain its matching packing inputs.
 The snapshot omits `dm/mac/min_os.mk`, which its host Makefile includes even
 for iOS project generation. The workflow restores that file from matching
 upstream revision `8e0916bf04f6fb8542c52ed01b166a8796158ca0`.
+The compatibility patch also restores that revision's profile-backed
+`DM_GAME_UE_TEXTURE_POOL` definition: the snapshot's host already reads it,
+but its profile generator omits it. The neutral shell uses zero; a game's
+configured value is retained, and iOS still requires its existing environment
+opt-in. No texture-streaming behavior is disabled to make the build pass.
 
 The integration patch preserves the fork's runtime `DM_PAD_LAYOUT` setting.
 Its frontend merge omits a cloud-save call absent from this shell release;
