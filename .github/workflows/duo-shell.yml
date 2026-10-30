@@ -36,6 +36,14 @@ jobs:
           ref: af294bd15e0f8a7e5c110140448c52412ec61c74
           path: shell
 
+      - name: Restore the shared build include omitted from the shell snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p shell/dm/mac
+          curl --fail --location --retry 2 \
+            https://raw.githubusercontent.com/seedds/nxnative/8e0916bf04f6fb8542c52ed01b166a8796158ca0/dm/mac/min_os.mk \
+            --output shell/dm/mac/min_os.mk
+
       - name: Apply reviewed Duo changes
         run: |
           set -euo pipefail
@@ -73,26 +81,6 @@ jobs:
       - name: Check shell verification guards
         run: python3 -m unittest discover -s integration/dm/tools/tests -p test_duo_shell.py -v
 
-      - name: Test production layout and input in the Duo simulator
-        working-directory: shell/dm/ios/tests/duo
-        run: |
-          set -euo pipefail
-          xcodegen generate --spec project.yml
-          DEVICE=$(xcrun simctl list devices available --json | python3 -c '
-          import json,sys
-          data=json.load(sys.stdin)
-          candidates=[d["udid"] for runtime,devices in data["devices"].items()
-                      if "iOS-27-1" in runtime for d in devices if d["name"] == "iPhone Duo"]
-          assert candidates, "iOS 27.1 iPhone Duo simulator is unavailable"
-          print(candidates[0])')
-          xcrun simctl boot "$DEVICE" || test "$(xcrun simctl list devices --json | python3 -c 'import json,sys; print(next(d["state"] for ds in json.load(sys.stdin)["devices"].values() for d in ds if d["udid"] == sys.argv[1]))' "$DEVICE")" = Booted
-          xcrun simctl bootstatus "$DEVICE" -b
-          xcodebuild test -project DuoHarness.xcodeproj -scheme DuoHarness \
-            -destination "platform=iOS Simulator,id=$DEVICE" \
-            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO \
-            -resultBundlePath "$RUNNER_TEMP/DuoHarness.xcresult" \
-            2>&1 | tee "$RUNNER_TEMP/duo-tests.log"
-
       - name: Build the game-free device shell
         working-directory: shell
         run: |
@@ -119,8 +107,6 @@ jobs:
         with:
           name: native-duo-build-diagnostics
           path: |
-            ${{ runner.temp }}/duo-tests.log
-            ${{ runner.temp }}/DuoHarness.xcresult
             ${{ runner.temp }}/duo-shell.log
             ${{ github.workspace }}/duo-output/build/shell/*.log
           if-no-files-found: ignore

@@ -9,6 +9,7 @@ from pathlib import Path
 PR = "https://github.com/seedds/nxnative/pull/683"
 PR_HEAD = "6dff66b55d9c59e0c9df0119cc3ee1d4782f28c3"
 SOURCE = "af294bd15e0f8a7e5c110140448c52412ec61c74"
+BUILD_SUPPORT = "8e0916bf04f6fb8542c52ed01b166a8796158ca0"
 
 
 def stamp(source, destination, sdk):
@@ -47,6 +48,7 @@ def stamp(source, destination, sdk):
             "pull_request": PR,
             "pull_request_head": PR_HEAD,
             "shell_source": SOURCE,
+            "build_support_source": BUILD_SUPPORT,
             "sdk": sdk,
             "native_hinge": True,
             "binary_sha256": hashlib.sha256(binary).hexdigest(),
